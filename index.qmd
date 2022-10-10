@@ -1,0 +1,187 @@
+---
+title: "HW 3 - Maps- Ramzi Farhat"
+format: html
+editor: visual
+---
+
+```{r}
+#| warning: false
+library(ggplot2)
+library(rworldmap) 
+library(sf)
+library(rgeos)
+library(dplyr)
+library(stringr)
+library(viridis)
+library(ggdendro)
+library(plotly)
+library(tigris)
+library(leaflet)
+library(tidyverse)
+library(methods)
+
+```
+
+In this exercise, I continue with the same theme of faculty compensation from HW1 and HW2
+
+## Plot 1 - Faculty salaries by state
+
+For this first plot, the data of faculty salaries by state was downloaded from
+
+<https://www.ziprecruiter.com/Salaries/What-Is-the-Average-Professor-Salary-by-State>
+
+-   the map below is a chloropleth map of faculty salaries.
+
+-   the map shows sparsely populated states such as Wyoming and the Dakotas, as well as 'rust belt' Midwestern states as having the lowest salaries.
+
+-   with the plotly version, the tool tip shows the name of the state, as well as the median salary in dollars.
+
+**Wrangling the data - Plot 1**
+
+```{r}
+#| warning: false
+statedata <- read.csv("statedata.csv")
+colnames(statedata)[1] <- gsub('^...','',colnames(statedata)[1])
+statedata$Salary <- as.numeric(statedata$Salary)
+statedata$FIPS <- as.numeric(statedata$FIPS)
+
+us_states_faculty <- map_data("state") %>%
+  mutate(region = str_to_title(region),
+         subregion = str_to_title(subregion)) %>% 
+  left_join(statedata, by = c("region" = "state"))
+```
+
+**Plot 1**
+
+```{r, fig.dim = c(8, 6)}
+#| warning: false
+p_faculty_state <- ggplot(data = us_states_faculty,
+            mapping = aes(x = long, y = lat,
+                          group = group, 
+                          fill = Salary,
+                          text = paste(region, "median faculty salary: $",Salary))) + theme(plot.title = element_text(face="bold")) + 
+  labs(title="Faculty salary by state") + 
+  theme(plot.title=element_text(hjust=0.5))
+
+
+p_faculty_state <- p_faculty_state + geom_polygon(color="white")
+p_faculty_state <- p_faculty_state + ggdendro::theme_dendro()
+p_faculty_state <- p_faculty_state + scale_fill_viridis(option="magma", direction=-1)
+p_faculty_state <- p_faculty_state + guides(fill=guide_legend(title="Faculty Salaries 2022 (USD) "))
+p_faculty_state <- p_faculty_state + coord_map()
+p_faculty_state
+ggsave("p_faculty_state.pdf")
+```
+
+-   
+
+```{r}
+#| warning: false
+ggplotly(p_faculty_state, tooltip = "text") 
+```
+
+-   
+
+-   
+
+-   
+
+## **Plot 2 - County affordability index for faculty**
+
+for this plot, the data on median home values at the county level was downloaded from
+
+<https://www.nar.realtor/research-and-statistics/housing-statistics/county-median-home-prices-and-monthly-mortgage-payment>
+
+the idea behind this map is to create an index of affordability, based on home values, to evaluate where your salary as an academic can take you the furthest. Home values were translated to monthly mortgage payments and faculty salaries (from plot 1) were translated to monthly salaries. The index, essentially, is the quotient of the monthly salary by the median monthly mortgage payment. An index of 10, for example, indicates low affordability, while an index of 20 indicates higher affordability.
+
+-   the map is a cloropleth map of county affordability on faculty salaries.
+
+-   the map shows that vast swaths of the Midwest and South are affordable to faculty.
+
+-   the coastal and mountainous regions, on the contrary, are the least affordable.
+
+**Wrangling the data - Plot 2**
+
+```{r}
+#| warning: false
+county <- (map_data("county"))
+
+
+countydata <- read.csv("affordability.csv")
+colnames(countydata)[1] <- gsub('^...','',colnames(countydata)[1])
+
+maps::county.fips %>%
+  as.tibble %>% 
+  extract(polyname, c("region", "subregion"), "^([^,]+),([^,]+)$") ->
+  dfips
+
+county %>% 
+  left_join(dfips) ->
+  dall
+
+us_county_faculty <- dall %>%
+  left_join(countydata, by = c("fips" = "FIPS"))
+```
+
+**Plot 2**
+
+```{r, fig.dim = c(8, 6)}
+#| warning: false
+p_faculty_county <- 
+  ggplot() + 
+  geom_polygon(data=us_county_faculty, 
+               color="white",
+               mapping = aes(x = long, y = lat,
+                             group = group, 
+                              
+                             fill = Affordability.Index,),
+                             size=.1) + 
+  geom_polygon(data=map_data("state"), 
+               color="black",
+               mapping = aes(x = long, y = lat,
+                             group = group),
+               size=.2,
+               fill=NA) + 
+  theme(plot.title = element_text(face="bold")) + 
+  labs(title="Housing affordability on faculty salary by county") + 
+  theme(plot.title=element_text(hjust=0.5))
+
+p_faculty_county <- p_faculty_county + ggdendro::theme_dendro()
+p_faculty_county <- p_faculty_county + scale_fill_viridis(option="magma", direction=-1)
+p_faculty_county <- p_faculty_county + guides(fill=guide_legend(title="Affordability Index"))
+p_faculty_county <- p_faculty_county + coord_map()
+p_faculty_county
+ggsave("p_faculty_county.pdf")
+```
+
+-   
+
+-   
+
+-   
+
+***Addendum: tigris version of Plot 1***
+
+*not sure why this version would not show data on a few states, though the data frame is complete!* *any thoughts?*
+
+```{r}
+#| warning: false
+
+t_states <- tigris::states(cb = TRUE, resolution = '20m')
+t_states$GEOID <- as.character(t_states$GEOID)
+statedata$FIPS <- as.character(statedata$FIPS)
+Faculty <- t_states %>% 
+  left_join(statedata , by = c("GEOID" = "FIPS")) %>%
+  filter(!(GEOID %in% c("02","15","72","78"))) 
+
+
+faculty_comp <- ggplot(data = Faculty) + 
+  geom_sf(color="white", aes(geometry = geometry, fill=Salary))
+faculty_comp <- faculty_comp + ggdendro::theme_dendro()
+faculty_comp <- faculty_comp + scale_fill_viridis(option="magma", direction=-1)
+faculty_comp <- faculty_comp + guides(fill=guide_legend(title="Faculty Salaries 2022 (USD)"))
+faculty_comp <- faculty_comp +  coord_sf()
+faculty_comp
+
+mapview::mapview(Faculty, zcol = "Salary")
+```
